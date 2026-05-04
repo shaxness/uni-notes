@@ -1,0 +1,1 @@
+Not the best notes, but felt like a waste to just delete them
