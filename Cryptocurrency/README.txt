@@ -1,0 +1,1 @@
+Appunti sulla terza parte del corso (SegWit, Lightning Network...)
