@@ -1,1 +1,0 @@
-Bad notes from a bad degree course
