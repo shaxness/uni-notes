@@ -1,4 +1,4 @@
-Riprendendo e correggendo un concetto importante nella scorsa lezione relativamente agli attacchi nelle reti locali, distinguiamo tra:
+Riprendendo un concetto importante nella scorsa lezione relativamente agli attacchi nelle reti locali, distinguiamo tra:
 - **Sniffing**
 - **Packet Injection**
 - **Man-in-the-Middle (MITM)**
