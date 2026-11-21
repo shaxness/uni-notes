@@ -178,7 +178,9 @@ In conclusione le semantiche più diffuse sono **at-least-once** e **at-most-onc
 
 *Cosa può fare lo sviluppatore se il middleware di comunicazione che deve utilizzare supporta soltanto la semantica at-least-once ma la procedura remota che sta sviluppando è non idempotente?*
 
-Lo sviluppatore può rendere idempotente la gestione dell'operazione implementando a livello applicativo un meccanismo di Duplicate Filtering, secondo il pattern Idempotent Receiver, sopperendo così alla mancanza di tale meccanismo nel middleware.
+Per prima cosa, lo sviluppatore può trasformare (laddove possibile) l'operazione non idempotente in un'operazione idempotente, ad esempio trasformando un'operazione di incremento in un'operazione di set (es. *incrementa di 47 di 1* --> *imposta 48*).
+
+Se ciò non dovesse bastare, lo sviluppatore può rendere idempotente la gestione dell'operazione implementando a livello applicativo un meccanismo di Duplicate Filtering, secondo il pattern Idempotent Receiver, sopperendo così alla mancanza di tale meccanismo nel middleware.
 
 In particolare:
 1. Il client associa a ogni richiesta un identificativo univoco (xid), mantenendolo invariato in caso di ritrasmissione.
@@ -186,3 +188,4 @@ In particolare:
 3. Quando riceve una richiesta, il server verifica se il relativo identificativo è già presente.
    - Se non è presente, elabora la richiesta e registra il risultato.
    - Se è già presente, restituisce il risultato precedentemente calcolato senza rieseguire l'operazione.
+  
