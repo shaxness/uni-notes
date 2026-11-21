@@ -34,7 +34,7 @@ Il **Server Stub** è invece il componente che gestisce la comunicazione lato se
 
 Il flusso completo della RPC può essere quindi schematizzato così:
 
-<img src="img/5_1.png" alt="RPC" width="400"/>
+<img src="imgs/5_1.png" alt="RPC" width="400"/>
 
 Gli stub implementano il così detto **Proxy Pattern**: rappresentano localmente la procedura remota e nascondono diversi dettagli implementativi di comunicazione.
 
@@ -117,8 +117,9 @@ Il funzionamento tipico è il seguente:
 4. Il client invia la richiesta al server individuato
 
 Il registry può inoltre supportare la rimozione e l'aggiornamento delle registrazioni, ad es. sulla base di timeout o heartbeat.  
+Il registry tipicamente non è su una terza macchina, ma lato server.
 
-<img src="img/5_2.png" alt="RPC" width="400"/>
+<img src="imgs/5_2.png" alt="RPC" width="400"/>
 
 Per ridurre l'overhead del binding dinamico tipicamente si utilizza una **cache** per evitare di ripetere il lookup ad ogni invocazione.  
 Il binding dinamico favorisce quindi la **location transparency**, ma questa non è necessariamente completa: alcune implementazioni richiedono comunque la conoscenza di un hostname oppure dell'indirizzo del registry...
@@ -170,10 +171,305 @@ In particolare, **il compilatore genera tutto il codice di supporto come gli stu
 
 *Chiaramente da distinguere tra compilatore IDL e eventuale compilatore del linguaggio di programmazione*, quest'ultimo compila solo il codice applicativo insieme ai componenti generati dal compilatore IDL e alle librerie necessarie.
 
-<img src="img/5_3.png" alt="RPC" width="400"/>
+<img src="imgs/5_3.png" alt="RPC" width="400"/>
 
 Non tutte le implementazioni RPC usano un IDL separato: alcune sfruttano direttamente i meccanismi del linguaggio di programmazione.
 
 ---
 
-# RPC use-cases
+# RPC case studies
+Vediamo "brevemente" Sun RPC, Java RMI, Python RPyC. Approfondiremo invece Go e gRPC.
+
+## Sun RPC
+**Sun RPC** è una delle primissime implementazioni del modello RPC, sviluppata da Sun Microsystems (ora Oracle) negli anni '90 e utilizzata in molti sistemi Unix, tra cui il famoso protocollo NFS (Network File System).  
+
+Permette ad un'applicazione, tipicamente scritta in C, di invocare procedure eseguite su un server remoto senza gestire esplicitamente lo scambio dei messaggi. 
+
+Sun RPC utilizza:
+- Un **IDL** per definire l'interfaccia del servizio
+- Un **compilatore IDL** `rpcgen` per generare gli stub client e server
+- Il formato binario **XDR (External Data Representation)** per il marshalling e l'unmarshalling dei dati
+- Un **port mapper** per individuare la porta del servizio remoto
+
+---
+
+Per comprenderne il funzionamento consideriamo l'esempio semplice dove un client invia un numero a un server, che ne deve calcolare e restituire il quadrato. 
+
+Anzitutto, lo sviluppatore descrive il servizio tramite un file IDL con estensione `.x`, nell'esempio `square.x`:
+```idl
+struct square_in{
+    long arg1;
+};
+struct square_out{
+    long res1;
+};
+program SQUARE_PROG {
+    version SQUARE_VERS {
+        square_out SQUAREPROC(square_in) = 1;
+    } = 1;
+} = 0x20000001;
+```
+Quindi `square.x` definisce:
+- **tipi di input e output** (`square_in` e `square_out`)
+- **programma RPC** `SQUARE_PROG`, che rappresenta il servizio remoto che tipicamente raggruppa più procedure (in questo caso una sola)
+- **versione dell'interfaccia** `SQUARE_VERS`
+- **procedura remota** `SQUAREPROC`
+
+L'operazione fondamentale qui è `square_out SQUAREPROC(square_in) = 1;`, che definisce una procedura remota che prende un argomento di tipo `square_in` e restituisce un risultato di tipo `square_out`, con identificativo numerico `1`.  
+Oltre che la singola procedura, anche la versione e il programma sono identificati univocamente, affinché **il middleware possa individuare esattamente l'operazione richiesta**. Inoltre, per convenzione, tutti gli identifier sono scritti in maiuscolo nel file IDL `.x`.
+
+In Sun RPC **ogni procedura riceve un solo argomento e restituisce un solo risultato --> per trasmettere più valori, li si deve raggruppare in una `struct`**.
+
+Una volta definito il file `.x`, lo sviluppatore usa il compilatore IDL `rpcgen` per produrre automaticamente il codice di supporto necessario alla comunicazione remota. I file generati sono:
+- `square.h` --> contiene le definizioni dei tipi di dato e gli identificatori numerici delle procedure, versioni e programmi
+- `square_clnt.c` --> client stub
+- `square_svc.c` --> server stub
+- `square_xdr.c` --> funzioni per conversione XDR
+
+A questo punto allo sviluppatore non resta che implementare il comportamento applicativo, scrivendo il codice del client e del server --> scrive solo il `.x`, `client.c` e `server.c`.
+
+Per quanto riguarda `server.c` e `client.c` si distinguono due funzioni importanti:
+- `squareproc_1_svc` --> è la funzione applicativa lato **server** scritta dal programmatore, per convenzione ha il nome della procedura definita nell'IDL ma minuscolo, seguito dalla versione e `_svc`
+- `squareproc_1` --> è la funzione del **client stub** generata automaticamente da `rpcgen`
+
+Se il client nel codice applicativo deve invocare la procedura remota, chiama proprio `squareproc_1` --> il client stub serializza i parametri, invia la richiesta al server e attende la risposta. Il server stub riceve la richiesta, ricostruisce i parametri, individua la procedura corretta e invoca `squareproc_1_svc`. Il risultato viene poi riconvertito e restituito al client.
+
+La chiamata RPC è quindi, per quel che riguarda Sun RPC, **sincrona e bloccante**.
+
+---
+
+**Marshalling e Unmarshalling**
+
+Sun RPC affronta il problema dell'**eterogeneità** dei dati usando **XDR External Data Representation**, un formato binario comune e indipendente dalle rappresentazioni interne delle singole macchine.  
+
+XDR usa un sistema di **typing implicito**: il messaggio non deve necessariamente contenere informazioni esplicite sui tipi dei dati, in quanto sia server che client già conoscono la struttura dei dati grazie al file IDL (ad ogni tipo era assegnato un identificatore numerico, serviva proprio a questo).
+
+**Binding e Port Mapper**
+
+Per quanto riguarda invece il **binding**, Sun RPC fa si che il client debba conoscere il servizio da invocare, ma non necessariamente la porta su cui esso è in ascolto.  
+Sun RPC infatti usa un componente chiamato **Port Mapper** (o `rpcbind`) in esecuzione sul server, generalmente sulla porta 111. 
+
+Il Port Mapper contiene una tabella del tipo:
+$$(programma, versione, protocollo) \rightarrow porta$$
+Funziona come segue:
+1. All'avvio, il server registra il proprio servizio sul Port Mapper locale
+2. Il client conosce l'hostname della macchina server (l'hostname serve per il mapping all'IP via DNS) e il programma RPC che vuole invocare
+3. Il middleware contatta quindi il Port Mapper per conoscere la porta del servizio, e la ottiene comunicando così direttamente con il server remoto
+
+es. la chiamata `clnt_create(hostname, SQUARE_PROG, SQUARE_VERS, "tcp")` crea un handle RPC usando il nome del server, l'id del programma, la versione e il protocollo di trasporto --> si crea il collegamento, ma ancora non si sta chiamando la procedura remota!
+
+Il Port Mapper interviene per l'individuazione del servizio, **ma non si occupa di inoltrare le singole invocazioni RPC** (non è broker).
+
+**Semantica e Trasparenze**
+
+In generale, SunRPC offre semantica **at-least-once** per cui le richieste possono essere ritrasmesse dopo un timeout, ma non viene garantita la deduplicazione --> operazioni idempotenti!  
+Per operazioni non idempotenti, possono essere necessari meccanismi aggiuntivi
+
+Trasparenze:
+- **Access Transparency** == **parziale**: la chiamata usa uno stub, ma restano visibili aspetti remoti come l'handle necessario al mapping (`clnt_create`) e gli errori
+- **Location Transparency** == **parziale**: il Port Mapper nasconde la porta, ma il client deve comunque conoscere l'hostname del server...
+- **Replication Transparency** == non supportata nativamente
+- **Sincronia** == sincrona e bloccante
+- **Trasporto** == TCP o UDP
+- **Concorrenza** == nell'implementazione base, il server permette solo una gestione sequenziale delle richieste
+
+Ricordare per Sun RPC: IDL `.x`, compilatore `rpcgen`, XDR e Port Mapper.
+
+---
+
+## Java RMI
+**Java RMI (Remote Method Invocation)** consente a un oggetto Java di invocare metodi appartenenti a un oggetto presente su un'altra JVM, eventualmente su un host remoto.
+
+La differenza fondamentale rispetto a Sun RPC sta nel modello di programmazione: mentre Sun RPC espone procedure remote, qui si parla di metodi di oggetti remoti.
+
+Java RMI sfrutta la separazione che esiste nativamente tra **interfaccia** (che definisce quali metodi possono essere invocati) e **implementazione** --> l'oggetto che implementa quei metodi si trova e resta sul server, **il client ottiene la possibilità di invocarne i metodi tramite un riferimento remoto, senza quindi ricevere una copia dell'oggetto**.
+
+---
+
+Anche Java RMI usa il **Proxy Pattern**.
+
+Sul client è presente uno **stub** che rappresenta localmente l'oggetto remoto (riferimento remoto all'oggetto) e gestisce le operazioni necessarie ad invocarne i metodi (nell'esempio è `serverRMI`).
+
+Sul server, nelle implementazioni storiche, era presente uno **skeleton** incaricato di ricevere le richieste ed inoltrarle all'oggetto remoto.  
+Nelle implementazioni più recenti lo skeleton è stato rimosso, e questa funzione viene svolta direttamente dal **runtime RMI**.
+
+La sintassi della chiamata somiglia a quella di una normale invocazione Java, ad es. `serverRMI.getEcho(msg)`, tuttavia *il programmatore deve comunque gestire le eccezioni associate al fatto che la comunicazione è remota*.
+
+**Interfaccia Remota**
+
+**In Java RMI non è necessario definire un IDL separato come avviene in Sun RPC**: l'interfaccia viene dichiarata direttamente in Java, a patto che estenda l'interfaccia `java.rmi.Remote` e che i metodi dichiarino di lanciare l'eccezione `RemoteException` (che rappresenta possibili problemi associati all'invocazione remota).
+```java
+public interface EchoInterface extends Remote {
+    String getEcho(String msg) throws RemoteException;
+}
+```
+La classe server implementa effettivamente l'interfaccia e contiene la logica del metodo.
+
+**Marshalling e passaggio dei parametri**
+
+Java RMI usa la **serializzazione nativa di Java** per convertire oggetti e dati in sequenze di byte --> a differenza di Sun RPC non serve generare funzioni XDR mediante file IDL.  
+Con `writeObject` serializzazione, i.e. l'oggetto è trasformato in una sequenza di byte, e con `readObject` avviene la deserializzazione (chiaramente si tratta di operazioni gestite dal middleware).
+
+Il passaggio dei parametri dipende dal tipo di dato:
+- **tipo primitivo** (`int`, `boolean`, ...) --> passaggio per valore (i.e. il valore è serializzato e inviato al server)
+- **oggetto ordinario serializzabile** --> passaggio per valore sempre via serializzazione
+- **oggetto remoto** --> passaggio per riferimento remoto tramite stub 
+
+Questa distinzione è importante in quanto se il client passa un oggetto ordinario serializzabile --> il server ricostruisce una copia nella propria memoria, mentre se viene passato un oggetto remoto il destinatario ottiene un riferimento che gli permette di invocare metodi sull'oggetto originale.
+
+**Binding**
+
+Java RMI usa **RMI Registry**, che permette di associare un nome logico a un riferimento remoto.
+
+Il server:
+1. istanzia l'oggetto remoto 
+2. avvia il RMI Registry, ad es. sulla porta 1099
+3. registra l'oggetto mediante un nome, ad es. `EchoService`
+
+Dopo aver creato l'istanza (`serverRMI`), le operazioni fondamentali quindi sono:
+```java
+LocateRegistry.createRegistry(1099); // avvia il registry
+registry.bind("EchoService", serverRMI); // registra l'oggetto remoto
+```
+A questo punto il client deve effettuare un lookup per ottenere il riferimento remoto e invocare i metodi:
+```java
+EchoInterface serverRMI = (EchoInterface) Naming.lookup("rmi://hostname:1099/EchoService");
+```
+successivamente a ciò, potrà tranquillamente invocare i metodi remoti del servizio: `serverRMI.getEcho("ciao")`.
+
+Il **registry** interviene quindi per individuare l'oggetto remoto, ma non viene consultato ad ogni invocazione: da lì in poi il client può invocare i metodi dell'oggetto remoto tramite lo stub ottenuto.
+
+<img src="imgs/5_4.png" alt="RPC" width="400"/>
+
+Quindi anche qui non c'è trasparenza totale alla locazione, in quanto il client deve sapere dove trovare il registry.
+
+**Semantica e Trasparenze**
+
+Per quel che riguarda la semantica, Java RMI offre anche **at-most-once** --> una singola invocazione remota può quindi essere eseguita zero oppure una volta.
+
+Trasparenze:
+- **Access Transparency** == **elevata** ma non totale: metodi simili a quelli locali, ma restano le eccezioni remote (`RemoteException`)
+- **Location Transparency** == **parziale**: il client deve conoscere l'hostname del server e la porta del registry
+- **Replication Transparency** == non supportata nativamente
+- **Sincronia** == sincrona e bloccante nel modello base
+- **Trasporto** == nativamente usa un protocollo applicativo che si appoggia solo su TCP
+- **Concorrenza** == il runtime può gestire invocazioni concorrenti dello stesso oggetto remoto, ma il programmatore deve provvedere a proteggere lo stato condiviso
+
+Per la **sicurezza**, Java RMI dà la possibilità di proteggere la comunicazione con TLS, tuttavia **non è abilitata di default**.
+
+Un altro concetto importante in Java RMI è quello di **Garbage Collection distribuita**: come capire quando un oggetto non è più referenziato da nessun client remoto e può essere quindi eliminato?
+
+Un'idea banale sarebbe far gestire la cosa direttamente dal server, che ogni tot. controlla se ci sono oggetti senza riferimenti remoti per eliminarli... tuttavia il controllo dei riferimenti non costa poco e quindi l'approccio **non è scalabile**, appesantisce eccessivamente il server.
+
+Piuttosto si eroga il compito ai client, che devono comunicare se stanno ancora usando l'oggetto remoto tramite l'uso dei **lease**: un **lease** è un contratto che scade dopo un certo tempo e che il client deve rinnovare per continuare ad usare il riferimento remoto. 
+
+Un client che non usa più lo stub può segnalarlo al server, ma per evitare che un client malintenzionato o malfunzionante tenga occupato un oggetto senza mai usarlo --> il server impone la scadenza.   
+Se il lease scade senza rinnovo allora il server considererà terminato l'interesse del client per l'oggetto --> **limite**: se il client era sovraccarico/crashato e non ha potuto rinnovare il lease allora deve ricominciare la procedura di lookup...
+
+---
+
+## RPyC
+**RPyC (Remote Python Call)** è una libreria Python per la comunicazione RPC, che permette di invocare metodi e utilizzare oggetti presenti in processi remoti.
+
+Come Java RMI si basa sul paradigma a oggetti, ma sfrutta alcune caratteristiche di Python:
+- **Tipizzazione Dinamica** (non è necessario dichiarare staticamente i tipi dei parametri e dei risultati)
+- **Introspezione a Runtime** (classi, metodi e attributi possono essere esaminati durante l'esecuzione)
+
+Per questo motivo anche RPyC non richiede IDL separato né generazione preventiva di stub statici.  
+La comunicazione è invece basata su **proxy dinamici**, chiamati **netref** (*network reference*).
+
+Un **netref** è un proxy locale che rappresenta un oggetto presente in un processo remoto.  
+Quando un client invoca un metodo tramite netref --> RPyC inoltra l'operazione al processo che ospita l'oggetto effettivo. 
+
+Ad es. `conn.root.add(4, 7)` invoca il metodo `add` sull'oggetto remoto `root`, grazie al netref `conn.root` che rappresenta l'oggetto remoto.
+
+RPyC offre quindi elevata trasparenza all'accesso, pur mantenendo visibili la gestione della connessione e i possibili errori remoti (proprio come in Java RMI).
+
+---
+
+Si considera la modalità RPyC basata su servizi.  
+Un servizio è definito attraverso una classe che estende `rpyc.Service`, e per rendere accessibile un metodo remoto si usa il prefisso `exposed_` nel nome del metodo.
+
+es. lato server:
+```python
+class CalculatorService(rpyc.Service):
+    def exposed_add(self, x, y):
+        return x + y
+```
+Allora il client stabilisce una connessione e invoca il metodo tramite proxy locale *netref*:
+```python
+conn = rpyc.connect("hostname", port)
+result = conn.root.add(4, 7)
+```
+(dove `conn` rappresenta la connesione, mentre `conn.root` è il netref del serivizio remoto)
+
+Il prefisso `exposed_` è quindi importante per controllare quali operazioni sono pubblicamente accessibili, dando la possibilità di ridurre la **superficie di attacco del servizio**.
+
+**Passaggio dati e marshalling**
+
+RPyC distingue due modalità di trasferimento:
+- **Per valore** --> il destinatario riceve una copia del dato (per tipi semplici come numeri o stringhe)
+- **Per riferimento remoto** --> il destinatario riceve un netref e interagisce con l'oggetto originale
+
+La particolarità rispetto a Java RMI è che RPyC permette di lavorare dinamicamente con riferimenti a oggetti Python **senza dover preventivamente dichiarare una specifica interfaccia remota** (per questo si parla di **proxy dinamici**).
+
+**Binding e Concorrenza**
+
+RPyC non usa un service registry obbligatorio (come il Port Mapper di Sun RPC o il RMI Registry di Java RMI), ma il client deve conoscere direttamente l'**hostname e la porta** del server remoto:
+```python
+conn = rpyc.connect("hostname", port)
+```
+La trasparenza della locazione è quindi limitata... si tratta di un **binding statico**.
+
+Per la concorrenza RPyC supporta `ThreadedServer`, che **crea un server che gestisce le connessioni usando un thread separato per ogni client** --> anche qui comunque il programmatore deve occuparsi della protezione dello stato condiviso dall'accesso concorrente.
+
+Oltre a `ThreadedServer` esistono altre modalità come `OneShotServer` (che gestisce una sola connessione e poi termina) e `ForkingServer` (che crea un nuovo processo per ogni connessione).
+
+**Chiamate Asincrone: Future/Promise**
+
+La novità in RPyC è che **supporta sia chiamate sincrone che asincrone**. 
+
+Mentre nel modello sincrono il client attende il risultato della procedura remota prima di proseguire, per le chiamate asincrone **il client ottiene immediatamente un oggetto che rappresenta il risultato futuro**, secondo il pattern **Future/Promise** --> in RPyC questo oggetto è chiamato `AsyncResult` e si chiama con `rpyc.async_()`.
+
+es.
+```python
+slow_add = rpyc.async_(conn.root.slowAdd)
+
+res = slow_add(4, 7) # restituisce un oggetto AsyncResult immediatamente
+
+# il client può eseguire altre operazioni
+
+res.wait() # attende il completamento
+print(res.value)
+```
+
+Altri valori utili per la comunicazione asincrona in RPyC sono:
+- `res.ready()` --> restituisce True se il risultato è pronto
+- `res.set_expiry(...)` --> imposta un timeout per il risultato (attento però che alla scadenza non è detto che la procedura non sia stata eseguita sul server)
+- `res.add_callback(...)` --> permette di registrare una funzione di callback da eseguire quando il risultato è pronto
+
+**Callback e Pattern Observer**
+
+Altra caratteristica di RPyC è che è in grado di realizzare comunicazione bidirezionale --> **il server può invocare metodi o funzioni del client tramite riferimenti remoti**.
+
+Questo permette di implementare, tra le altre cose, il **Pattern Observer**, vediamolo a grandi linee con un esempio di monitoraggio file:
+1. Il client chiede al server di monitorare un file, fornendo il riferimento ad una propria funzione di callback
+2. Il server controlla periodicamente il file
+3. Quando rileva una modifica, invova la funzione di callback remota sul client, che quindi riceve la notifica e può reagire di conseguenza
+
+Si tratta di applicazione del pattern Observer perché il client si registra per ricevere notifiche al verificarsi di un certo evento. 
+
+<img src="imgs/5_5.png" alt="RPC" width="400"/>
+
+**Semantica e Trasparenze**
+
+Nel modello RPyC standard, la semantica è **May-be**, quindi *best-effort* --> se si vogliono garanzie più forti, il programmatore deve implementare meccanismi di deduplicazione o retry a livello applicativo.
+
+Per le trasparenze:
+- **Access Transparency** == **elevata**, grazie ai netref
+- **Location Transparency** == **limitata** in quanto la connessione è esplicita a host e porta, nonché statica
+- **Replication Transparency** == non supportata nativamente
+- **Concorrenza** == supportata tramite `ThreadedServer`, ma il programmatore deve proteggere lo stato condiviso
+- **Sincronia** == supporta sia sincrona che asincrona (per l'asincrona si usa `rpyc.async_()`)
+
+Le altre caratteristiche di RPyC sono il supporto alle **callback** (comunicazione bidirezionale), maggiore sicurezza grazie al prefisso `exposed_`, che non ci sono direttamente degli stubs ma dei **netref** dinamici. 
