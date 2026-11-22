@@ -473,3 +473,62 @@ Per le trasparenze:
 - **Sincronia** == supporta sia sincrona che asincrona (per l'asincrona si usa `rpyc.async_()`)
 
 Le altre caratteristiche di RPyC sono il supporto alle **callback** (comunicazione bidirezionale), maggiore sicurezza grazie al prefisso `exposed_`, che non ci sono direttamente degli stubs ma dei **netref** dinamici. 
+
+## Go (Intro)
+Go è un linguaggio compilato, tipizzato staticamente e progettato per facilitare lo sviluppo di software concorrente ed efficiente.  
+Risulta particolarmente adatto ai sistemi distribuiti grazie al supporto nativo per la concorrenza tramite **goroutine** e **canali**.
+
+Go organizza il codice in **package**, che raggruppano funzioni, tipi e altre dichiarazioni. Una regola importante è che **gli identificatori che iniziano con una lettera maiuscola sono esportati**, ossia **accessibili anche da altri package** --> fondamentale in Go RPC, dato che i servizi, i metodi remoti e i tipi usati devono rispettare specifici requisiti di esportazione.
+
+### Struct e Metodi
+In Go non esistono classi come in Java, si possono però definire dei tipi `struct` e associare loro dei metodi.  
+
+Una `struct` raggruppa campi di tipi eventualmente diversi:
+```go
+type Args struct {
+    A int
+    B int
+}
+```
+Possiamo inoltre definire un tipo che rappresenti un servizio: `type Arith struct{}` (la struct è vuota perché il servizio non ha bisogno di mantenere uno stato interno).
+
+Per associare un metodo ad `Arith`:
+```go
+func (a *Arith) Multiply(x int, y int) int {
+    return x * y
+}
+```
+dove la parte `a *Arith` è detta **receiver** e indica che il metodo `Multiply` è associato al tipo (struct) `Arith` --> **è importante distinguerlo dai parametri del metodo `x` e `y`**: il receiver identifica l'oggetto sul quale viene invocato il metodo, mentre i parametri sono i valori passati al metodo stesso.à
+
+### Puntatori
+I **puntatori** permettono di riferirsi ad una variabile tramite il suo indirizzo di memoria. In Go:
+- `&x` restituisce l'indirizzo di memoria della variabile `x`
+- `*p` dereferenzia il puntatore `p` (i.e. permette di accedere al valore puntato da `p`)
+
+es. 
+```go
+x := 10
+p := &x 
+*p = 20
+```
+alla fine del codice, `x` vale 20.
+
+Questo è fondamentale dato che in Go RPC **il risultato della procedura viene scritto attraverso un parametro puntatore**, anziché essere restituito direttamente come normale valore di ritorno.
+
+### Goroutine e canali
+Le **goroutine** sono unità di esecuzione concorrente gestite dal runtime di Go.  
+Per avviarne una, si usa la parola chiave `go`:
+```go
+go function()
+```
+La funzione viene avvia concorrentemente e il chiamante può proseguire senza attendere che termini.
+
+Le goroutine possono comunicare attraverso **canali**:
+```go
+ch := make(chan int) // crea un canale di interi
+```
+Un valore viene inviato sul canale con `ch <- 10` e ricevuto con `x := <-ch`.
+
+Nel caso di Go RPC, i canali sono importanti soprattutto per le **chiamate asincrone**, nelle quali il risultato viene reso disponibile successivamente.
+
+## Go RPC
