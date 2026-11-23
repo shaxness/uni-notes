@@ -240,9 +240,9 @@ La chiamata RPC è quindi, per quel che riguarda Sun RPC, **sincrona e bloccante
 
 **Marshalling e Unmarshalling**
 
-Sun RPC affronta il problema dell'**eterogeneità** dei dati usando **XDR External Data Representation**, un formato binario comune e indipendente dalle rappresentazioni interne delle singole macchine.  
+Sun RPC affronta il problema dell'**eterogeneità** dei dati usando **XDR External Data Representation**, un formato **binario** comune e indipendente dalle rappresentazioni interne delle singole macchine.  
 
-XDR usa un sistema di **typing implicito**: il messaggio non deve necessariamente contenere informazioni esplicite sui tipi dei dati, in quanto sia server che client già conoscono la struttura dei dati grazie al file IDL (ad ogni tipo era assegnato un identificatore numerico, serviva proprio a questo).
+XDR usa un sistema di **typing implicito**: il messaggio non deve necessariamente contenere informazioni esplicite sui tipi dei dati, in quanto sia server che client già conoscono la struttura dei dati grazie al file IDL (ad ogni tipo era assegnato un identificatore numerico, serviva proprio a questo) --> XDR è un formato **non self-describing**.
 
 **Binding e Port Mapper**
 
@@ -474,6 +474,8 @@ Per le trasparenze:
 
 Le altre caratteristiche di RPyC sono il supporto alle **callback** (comunicazione bidirezionale), maggiore sicurezza grazie al prefisso `exposed_`, che non ci sono direttamente degli stubs ma dei **netref** dinamici. 
 
+---
+
 ## Go (Intro)
 Go è un linguaggio compilato, tipizzato staticamente e progettato per facilitare lo sviluppo di software concorrente ed efficiente.  
 Risulta particolarmente adatto ai sistemi distribuiti grazie al supporto nativo per la concorrenza tramite **goroutine** e **canali**.
@@ -532,3 +534,174 @@ Un valore viene inviato sul canale con `ch <- 10` e ricevuto con `x := <-ch`.
 Nel caso di Go RPC, i canali sono importanti soprattutto per le **chiamate asincrone**, nelle quali il risultato viene reso disponibile successivamente.
 
 ## Go RPC
+**Go RPC** è un'implementazione di RPC fornita dalla libreria standard di Go, tramite il package `net/rpc`.
+
+Permette a un client di invocare metodi definiti su un servizio remoto, senza gestire manualmente sincronizzazione o scambio di messaggi.  
+A differenza di Sun RPC, **Go RPC non richiede un IDL separato**, né tantomeno un compilatore IDL dedicato alla generazione degli stub. L'interfaccia del servizio è definita direttamente tramite i tipi e i metodi Go.
+
+Per individuare il metodo remoto, il client usa una stringa della forma *"NomeServizio.NomeMetodo"*, ad esempio `"Arithmetic.Multiply"` --> il middleware si occupa di codificare gli argomenti, trasmettee la richiesta, individuare il metodo corrispondente sul server e ricostruire il risultato.
+
+---
+
+Per rendere un metodo utilizzabile tramite `net/rpc`, la sua firma deve rispettare alcune convenzioni. La struttura generale **lato server** è la seguente:
+```go
+func (s *Servizio) Metodo(
+    input TipoInput,
+    reply *TipoRisposta
+) error
+```
+Si distingue quindi `s *Servizio` è il **receiver** e in questo caso serve per individuare l'istanza del servizio (ricorda che il receiver identifica l'oggetto sul quale è invocato il metodo); il metodo in sé; l'argomento della procedura con relativo tipo (`input TipoInput`); `reply *TipoRisposta` che è **il puntatore alla variabile su cui scrivere il risultato** ed `error` che è il valore restituito per indicare eventuali errori durante l'esecuzione della procedura remota, ed è `nil` in caso di successo.
+
+Per essere registrabile tramite `net/rpc` il metodo inoltre deve essere **esportato** (i.e. il nome deve iniziare con una lettera maiuscola) e deve avere **due parametri** (uno per l'input e uno per l'output --> se più parametri in input, si sfrutta una `struct` per raggrupparli), e come singolo valore di ritorno proprio `error`.  
+Devono essere esportati anche i tipi dei parametri utilizzati.
+
+Vediamo un esempio di servizio `Arith` che espone un metodo `Multiply`:
+```go
+type Arith struct{}
+
+type Args struct {
+    A, B int
+}
+
+type Result int
+
+func (a *Arith) Multiply(
+    args *Args,
+    res *Result,
+) error {
+    *res = Result(args.A * args.B)
+    return nil
+}
+```
+per cui il metodo `Multiply` riceve i due operandi attraverso `args`, calcola il prodotto e scrive il risultato nella variabile puntata da `res` --> si vede come la firma del metodo rispetti le convenzioni richieste da `net/rpc`, per cui non viene restituito il risultato direttamente, ma solo un eventuale errore, e il risultato è scritto su un puntatore.
+
+**Lato Server**
+
+Dopo aver definito il servizio, il server deve crearne un'istanza e registrarla presso il runtime RPC, per poi mettersi in ascolto delle connessioni in arrivo.
+
+```go
+arithService := new(arith.Arith) // crea un'istanza del servizio (arith piccolo è il package)
+
+server := rpc.NewServer() 
+
+server.RegisterName( 
+    "Arithmetic", 
+    arithService,
+)
+```
+Un'alternativa a usare `server.RegisterName` è usare direttamente `rpc.Register(arithService)` che registra il servizio usando il nome del tipo come nome del servizio (in questo caso `Arith`).
+
+Dopodiché il server deve aprire la connessione, e lo fa tramite la creazione di un oggetto **listener**, per poi avviare la gestione delle connessioni e richieste RPC tramite `Accept`:
+```go
+lis, err := net.Listen("tcp", ":1234") // ascolta sulla porta 1234
+server.Accept(lis)
+```
+In questo modo, `net/rpc` gestisce le richieste in modo concorrente tramite goroutine, senza che lo sviluppatore debba crearne manualmente una per ogni chiamata --> resta però anche qui **responsabilità dello sviluppatore sincronizzare l'accesso a eventuali dati condivisi delle richieste!**
+
+Quando arriva una richiesta per `Arithmetic.Multiply`, il runtime RPC cerca il servizio registrato come `Arithmetic`, individua il metodo `Multiply`, fa unmarshalling dei parametri, esegue la procedura e restituisce al client il risultato (o l'errore) --> **il nome logico del servizio e del metodo usati dal client devono corrispondere a quelli registrati sul server**.
+
+**Lato Client**
+
+Anzitutto il client deve fare il **binding** con il server:
+```go
+client, err := rpc.Dial(
+    "tcp", 
+    "hostname:1234",
+    )
+```
+per cui il client deve conoscere esplicitamente **hostname e porta del server** (binding statico...).  
+Una variante è usare `rpc.DialHTTP` se il server RPC è esposto tramite HTTP.
+
+Così facendo il client avrà accesso a tutti i servizi registrati su quel server, a patto che siano esposti correttamente.  
+A questo punto, una volta ottenuto l'oggetto `client`, è possibile invocare i metodi remoti in due motalità: **sincrona** e **asincrona**.
+
+**Chiamata Sincrona --> `client.Call`**
+```go
+args := arith.Args{A: 7, B: 3}
+
+var result arith.Result
+
+err := client.Call(
+    "Arithmetic.Multiply", 
+    &args, 
+    &result,
+)
+```
+dove `arith` è il package che contiene la definizione del servizio, importato sia dal client che dal server.  
+(Tipicamente un progetto Go RPC è organizzato così:
+```
+progetto/
+├── arith/
+│   └── arith.go
+├── client/
+│   └── main.go
+└── server/
+    └── main.go
+```
+)
+
+Se la chiamata va a buon fine, `err` sarà `nil` e il risultato sarà scritto nella variabile `result`, altrimenti si è verificato un errore.
+
+**Chiamata Asincrona --> `client.Go`**
+```go
+args := arith.Args{A: 7, B: 3}
+
+var result arith.Result
+
+call := client.Go(
+    "Arithmetic.Multiply", 
+    &args, 
+    &result, 
+    nil,
+)
+```
+Qui `client.Go` avvia una chiamata **asincrona** e **restituisce immediatamente un oggetto di tipo `*rpc.Call`**.  
+Questo oggetto contiene, tra le altre cose:
+- `Done` == canale utlizzato per segnalare il completamento della chiamata
+- `Error` == eventuale errore della chiamata
+
+Il client può quindi eseguire altre istruzioni e attendere il risultato solo quando necessario:
+```go
+<-call.Done // attende il completamento della chiamata sul canale Done
+if call.Error == nil {
+    fmt.Println("Result:", result)
+}
+```
+
+<img src="imgs/5_6.png" alt="RPC" width="400"/>
+
+---
+
+**Marshalling e Unmarshalling**
+
+Go RPC effettua automaticamente marshalling e unmarshalling utilizzando il package `encoding/gob`. 
+
+`gob` è un formato di **serializzazione binaria** che consente di rappresentare valori Go come sequenze di byte.  
+La caratteristica importante è che **gob è self-describing**: il flusso trasporta informazioni sui tipi dei dati, necessarie alla codifica.
+
+Chiaramente **i puntatori non sono trasmessi come indirizzi di memoria**, ma vengono codificati i dati a cui fanno riferimento secondo le regole del formato `gob`.
+
+L'altra differenza rispetto a Sun RPC è che Go RPC non richiede un IDL che generi funzioni necessarie al marshalling (come avveniva in XDR, che tra l'altro non era self-describing), e a differenza di Java non usa una serializzazione nativa del linguaggio.
+
+**Binding**
+
+Come visto Go RPC ha binding statico, per cui non c'è un **service registry** come il Port Mapper di Sun RPC o il RMI Registry di Java RMI --> `server.RegisterName("Arithmetic", arithService)` serve a far conoscere **al runtime RPC locale del server i metodi disponibili**, e `rpc.Dial("tcp", "hostname:1234")` richiede che il client conosca esplicitamente l'endpoint del server...
+
+Quindi importante distinguere la **registrazione del metodo** effettuata localmente via `Register` o `RegisterName`, e l'**individuazione della macchina server** affidata invece alla configurazione del client tramite `Dial` oppure a sistemi esterni di discovery (non forniti nativamente da Go RPC).
+
+**Semantica e Trasparenze**
+
+La libreria `net/rpc` non implementa automaticamente una politica generale di retry, df o conservazione dei risultati delle richieste --> la semantica è il **may-be** (*best-effort*) --> per avere garanzie migliori, lo sviluppatore deve integrarle a livello applicativo.
+
+Tra le trasparenze:
+- **Access Transparency** == **parziale**: il middleware nasconde la comunicazione e la serializzazione, ma il client usa chiamate specifiche ed esplicite `Call` o `Go`
+- **Location Transparency** == **limitata**: il client deve conoscere l'hostname e la porta del server
+- **Replication Transparency** == non supportata nativamente
+- **Failure Transparency** == limitata (la semantica è best-effort)
+- **Concorrenza** == gestione automatica delle richieste concorrenti, ma sincronizzazione dello stato condiviso a carico dello sviluppatore
+
+Quindi Go RPC si distingue per `net/rpc`, metodi remoti con firma specifica e tipizzati come `struct`, `RegisterName`, `Call`, `Go`, serializzazione `gob`, binding statico, semantica may-be.
+
+---
+
+## gRPC
