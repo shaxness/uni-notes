@@ -705,3 +705,380 @@ Quindi Go RPC si distingue per `net/rpc`, metodi remoti con firma specifica e ti
 ---
 
 ## gRPC
+**gRPC** è un framework RPC open-source progettato per fornire comunicazioni efficienti tra applicazioni distribuite, **anche sviluppate in linguaggi diversi** --> pensato per essere usato tra componenti **poliglotte**.
+
+Questa caratteristica è particolarmente importante nelle architetture a microservizi, dove componenti diverse possono essere sviluppate da team e linguaggi diversi.
+
+gRPC si basa principalmente su:
+- **HTTP/2** come protocollo usato per la trasmissione delle richieste e delle risposte
+- **Protocol Buffers (Protobuf)** usato come linguaggio per definire le interfacce e serializzare i messaggi --> **file IDL `.proto`** per definire le interfacce dei servizi
+- **Stub generati automaticamente**, per gestire le chiamate remote secondo il Proxy Pattern
+
+### HTTP/2
+Per trasportare richieste e risposte RPC, gRPC usa **HTTP/2**.  
+Una delle caratteristiche fondamentali di questo protocollo è il **multiplexing**, che permette di trasportare più richieste e risposte contemporaneamente sulla stessa connessione TCP.
+
+Il problema storico di HTTP/1.1 era l'**Head-of-Line Blocking**: date due richieste $A$ e $B$ dove $A$ richiede elaborazione lunga e $B$ una molto veloce, il *pipelining* di HTTP/1.1 costringeva le risposte a rispettare l'ordine delle richieste --> se $B$ è già pronta, deve comunque attendere la risposta di $A$.
+
+Per risolvere il problema HTTP/2 introduce gli **stream**, ossia flussi logici distinti all'interno della stessa connessione TCP.  
+Ogni stream è identificato univocametne nella connessione e i dati sono trasmessi mediante **frame binari** --> il server può inviare frame appartenenti a stream diversi in qualsiasi ordine
+
+<img src="imgs/5_7.png" alt="RPC" width="400"/>
+
+Attenzione al fatto che HTTP/2 risolve l'HOL Blocking solo a livello applicativo, ma non a livello di trasporto TCP --> se si perde un segmento TCP, il recupero può ritardare stream diversi che condividono comunque la stessa connessione.
+
+Caratteristiche principali di HTTP/2:
+- **Multiplexing** --> permette più RPC contemporanee sulla stessa connessione TCP
+- **Binary framing** --> i dati sono suddivisi in frame binari
+- *Header compression* --> invece di inviare ripetutamente lo stesso header, si usano tecniche di invio del solo delta --> riduzione dell'overhead
+- *Flow Control* --> regolazione del flusso di dati per evitare congestione e sovraccarico del destinatario
+- **Full-duplex** --> client e server possono inviare dati contemporaneamente
+
+### Protocol Buffers e file `.proto`
+**Protocol Buffers (Protobuf)** svolge due funzioni fondamentali in gRPC:
+1. **Definizione delle interfacce (IDL)**: permette di specificare servizi, metodi remoti e tipi dei messaggi scambiati
+2. **Serializzazione**: permette di convertire i messaggi in un formato **binario** compatto e indipendente dalla piattaforma
+
+Per la **definizione dei messaggi**:
+```protobuf
+message Person {
+    string name = 1;
+    int32 id = 2;
+    string email = 3;
+}
+```
+`message` definisce il tipo di messaggio, mentre ogni campo comprende:
+- un *tipo* (es. `string`, `int32`, ...)
+- un *nome* (es. `name`, `id`, `email`)
+- un *identificativo numerico locale al messaggio*
+
+I numeri identificano i campi nella codifica Protobuf, non rappresentano l'ordine in cui devono essere trasmessi --> il destinatario interpreterà i dati sempre in base a Protobuf --> a differenza di `gob` (dove le info sulle definizioni dei tipi erano trasportate nel flusso) e similmente a XDR, Protobuf è **self-describing**.
+
+Per la definizione di un servizio:
+```protobuf
+service ProductInfo {
+    rpc AddProduct(Product) returns (ProductID);
+    rpc GetProduct(ProductID) returns (Product);
+}
+
+message Product {
+    string id = 1;
+    string name = 2;
+    float price = 3;
+}
+
+message ProductID {
+    string id = 1;
+}
+```
+qui l'interfaccia definisce un servizio che espone i due metodi `AddProduct` e `GetProduct`, con i rispettivi tipi di input e output.
+
+Il file `.proto` quindi **descrive quali operazioni sono disponibili e quali dati devono scambiarsi client e server**, ma non definisce come devono essere implementate!
+
+Dopo aver scritto l'interfaccia `.proto`, lo sviluppatore usa **il compilatore `protoc`** insieme ai **plugin appropriati per lo specifico linguaggio di programmazione** per generare automaticamente gli stub client e server per la gestione delle chiamate remote e della serializzazione dei messaggi.
+
+Quindi simile a Sun RPC dove si usava `rpcgen` a partire da un IDL `.x`, ma qui linguaggio Protobuf poliglotta e comunicazione basata su HTTP/2.
+
+<img src="imgs/5_8.png" alt="RPC" width="400"/>
+
+---
+
+**Es. di implementazione di un servizio HelloWorld**  
+(non serve saperlo per l'esonero, giusto per avere un'idea dell'uso poi in Go per il progetto)
+
+Un servizio `Greeter` riceve il nome di una persona e deve restituire un messaggio di saluto.
+
+Definizione `.proto`:
+```protobuf
+service Greeter {
+    rpc SayHello(HelloRequest) returns (HelloReply);
+}
+
+message HelloRequest {
+    string name = 1;
+}
+
+message HelloReply {
+    string message = 1;
+}
+```
+
+**Lato Server (Go)** si definisce il servizio e si implementa il metodo:
+```go
+// 1. Definizione del servizio
+type server struct {
+    pb.UnimplementedGreeterServer
+}
+// dove pb è il package generato da protoc a partire dal file .proto
+// 2. Implementazione del metodo remoto
+func (s *server) SayHello(
+    ctx context.Context,
+    in *pb.HelloRequest,
+) (*pb.HelloReply, error) {
+    return &pb.HelloReply{
+        Message: "Hello " + in.GetName(),
+    }, nil
+}
+```
+dove nella firma del metodo:
+- `ctx context.Context` è un oggetto che permette di gestire il contesto della chiamata (timeout, cancellazione, metadati, ecc.)
+- `in *pb.HelloRequest` è il puntatore al parametro di input
+- `*pb.HelloReply` è puntatore al risultato della procedura, con eventuale errore
+
+Qui si nota come **il risultato della procedura viene restituito direttamente come valore di ritorno**, a differenza di Go RPC dove il risultato era scritto su un puntatore passato come parametro.
+
+Dopodiché il server crea un'istanza di gRPC e registra il servizio:
+```go
+func main() {
+    // 3. Apertura della porta TCP
+    lis, err := net.Listen("tcp", ":50051")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 4. Creazione del server gRPC
+    s := grpc.NewServer()
+
+    // 5. Registrazione del servizio Greeter
+    // (dove pb è il package generato da protoc a partire dal file .proto, 
+    // e RegisterGreeterServer è la funzione generata per associare al server gRPC
+    // l'implementazione del servizio Greeter)
+    pb.RegisterGreeterServer(s, &server{})
+
+    // 6. Avvio del server
+    log.Fatal(s.Serve(lis))
+}
+```
+
+**Lato Client (Go)**:
+
+Una volta creata la connessione, il client genera lo stub locale:
+```go
+c := pb.NewGreeterClient(conn)
+```
+e successivamente invoca il metodo remoto:
+```go
+r, err := c.SayHello(
+    ctx,
+    &pb.HelloRequest{Name: "Anna"},
+)
+```
+Il client stub serializza la richiesta tramite Protobuf, la trasmette tramite HTTP/2 e ricostruisce la risposta ricevuta.
+
+Qui per il codice client completo:
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    pb "example.com/progetto/helloworld"
+
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/insecure"
+)
+
+func main() {
+
+    // 1. Creazione del canale verso il server
+    conn, err := grpc.NewClient(
+        "localhost:50051",
+        grpc.WithTransportCredentials(
+            insecure.NewCredentials(),
+        ),
+    )
+
+    if err != nil {
+        log.Fatalf("Errore creazione client: %v", err)
+    }
+
+    defer conn.Close()
+
+    // 2. Creazione dello stub locale
+    c := pb.NewGreeterClient(conn)
+
+    // 3. Creazione del contesto con timeout
+    ctx, cancel := context.WithTimeout(
+        context.Background(),
+        5*time.Second,
+    )
+
+    defer cancel()
+
+    // 4. Invocazione del metodo remoto
+    r, err := c.SayHello(
+        ctx,
+        &pb.HelloRequest{Name: "Anna"},
+    )
+
+    if err != nil {
+        log.Fatalf("Errore RPC: %v", err)
+    }
+
+    // 5. Lettura della risposta
+    log.Println(r.GetMessage())
+}
+```
+**Differenza rispetto a Go RPC**
+
+Come accennato prima, lato server, il metodo remoto in Go RPC scriveva il risultato su un parametro puntatore e restituisce direttamente solo `error`:
+```go
+func (a *Arith) Multiply(
+    args *Args,
+    res *Result,
+) error
+```
+Al contrario in gRPC-Go il metodo remoto restituisce sia risposta che eventuale errore:
+```go
+func (s *server) SayHello(
+    ctx context.Context,
+    in *pb.HelloRequest,
+) (*pb.HelloReply, error)
+```
+
+**Context, deadline e cancellazione**
+
+Un elemento importante nell'implementazione di gRPC-Go è `context.Context`.  
+Il contesto permette di gestire info associate alla chiamata, tra cui deadline, cancellazione e metadati applicativi:
+- **Deadline**: il client può stabilire un tempo massimo entro il quale desidera ottenere il risultato. Se la deadline viene superata --> la chiamata termina dal punto di vista del client con un errore
+- **Cancellazione**: il client può cancellare una chiamata non più necessaria --> il server riceve la notifica tramite il contesto e può interrompere l'elaborazione se il codice applicativo lo prevede  
+(attenzione al fatto che *cancellare una RPC non garantisce che gli effetti già prodotti dell'operazione sul server vengano annullati*)
+
+---
+
+### Modalità di comunicazione gRPC
+gRPC supporta **quattro tipi di chiamate remote**: **Unary**, **Server Streaming**, **Client Streaming** e **Bidirectional Streaming**.
+
+<img src="imgs/5_9.png" alt="RPC" width="400"/>
+
+Per capirle immaginiamo un servizio di mappe, dove a volte ho bisogno di chiedere info su un singolo punto e altre di inviare più punti di un percorso su cui cammino, o di ricevere molti punti in una sola ricerca (in questi ultimi casi è evidente l'utilità dello streaming).
+
+#### Unary (Simple) RPC
+Il client invia una singola richiesta e riceve una singola risposta:
+```protobuf
+rpc ListFeatures(Rectangle)
+    returns (stream Feature);
+```
+Si tratta del modello più simile ad una normale chiamata a procedura remota
+#### Server Streaming RPC
+Il client invia una singola richiesta, mentre il server restituisce uno stream di messaggi
+```protobuf
+rpc ListFeatures(Rectangle)
+    returns (stream Feature);
+```
+Es: il client richiede i punti di interesse presenti in una zona e il server restituisce progressivamente i risultati.
+#### Client Streaming RPC
+Il client invia uno stream di messaggi, mentre il server restituisce una singola risposta
+```protobuf
+rpc RecordRoute(stream Point)
+    returns (RouteSummary);
+```
+Es. il client invia progressivamente i punti di un percorso e il server restituisce un riepilogo finale.
+#### Bidirectional Streaming RPC
+Sia il client che il server si inviano uno stream di messaggi, potenzialmente contemporaneamente.  
+```protobuf
+rpc RouteChat(stream RouteNote)
+    returns (stream RouteNote);
+```
+Si tratta di una comunicazione **full-duplex**, per cui il server può inviare risposte senza dover necessariamente attendere che il client abbia terminato l'invio di tutti i messaggi e viceversa.
+
+**gRPC preserva l'ordine dei messaggi all'interno di ciascuna direzione dello stream**.
+
+Attenzione a non confondere lo **Streaming** con il **Multiplexing**: il primo riguarda più messaggi scambiati all'interno della stessa chiamata RPC, il secondo più chiamate RPC distinte che condividono la stessa connessione HTTP/2 (e quindi TCP).  
+Quindi una connessione HTTP/2 può trasportare contemporaneamente più RPC, ciascuna delle quali può essere unary oppure streaming.
+
+**Semantica, Sicurezza e Trasparenze**
+
+Per quel che riguarda la semantica, gRPC offre una politica base **may-be** (*best-effort*), ma il framework supporta dei meccanismi di retry che possono essere configurati al fine di aumentare la probabilità di completamento. 
+
+In particolare:
+- **Retry con exponential backoff**: se una chiamata fallisce, il client può ritentarla dopo un intervallo di tempo progressivamente crescente --> il vantaggio è ridurre il rischio che molti client sovraccarichino contemporaneamente un server già in difficoltà
+- **Request Hedging**: se un primo tentativo è ancora in corso ma è abbastanza lento da giustificare un secondo tentativo, il client invia una seconda richiesta magari verso un'altra replica. Quando arriva la risposta, il client può cancellare i tentativi ancora in corso.  
+Il vantaggio è ridurre la latenza percepita dal client, ma il rischio è che il server riceva più richieste dello stesso tipo e quindi si sovraccarichi.
+
+<img src="imgs/5_10.png" alt="RPC" width="400"/>
+
+Per quel che riguarda la sicurezza, gRPC supporta **TLS**, che permette di proteggere la comunicazione tramite cifratura e autenticazione lato server.  
+Con **mTLS** (mutual TLS) è possibile anche autenticare il client tramite certificato.
+
+Per le trasparenze:
+- **Access Transparency** == **alta**, grazie agli stub generati automaticamente, tuttavia restano visibili errori, deadline e altri aspetti remoti --> comunque trasparenza molto forte se si pensa alla natura poliglotta di gRPC
+- **Location Transparency** == **limitata**: di base il client deve conoscere l'endpoint del server da contattare. Tuttavia possibilità di integrare resolver personalizzati con sistemi esterni tipo Consul...
+- **Concorrenza** == il framework permette a più chiamate RPC di essere in corso contemporaneamente grazie al **multiplexing** di HTTP/2, ma il programmatore deve comunque proteggere eventuali dati condivisi
+- **Replication Transparency** == gRPC non lo fornisce nativamente, ma si presta ad integrazione esterna con sistemi di Load Balancing, che siano client-side o esterni.  
+- **Failure Transparency** == limitata nel modello base, ma il framework supporta meccanismi di retry e request hedging per aumentare la probabilità di completamento delle chiamate
+- **Security** == TLS e mTLS supportati nativamente
+
+Per quel che riguarda la replicazione, se esistono più istanze dello stesso servizio bisogna considerare anche come viene distribuito il suo stato --> si distinguono due possibilità:
+- **Replicazione dello stato** == più server mantengono copie dei dati... qui il problema è che garantire la consistenza tra le repliche è complesso e richiede forte coordinazione
+- **Partizionamento dello stato** == ogni server mantiene soltanto una parte dei dati --> le richieste devono essere indirizzate al server responsabile della partizione corretta
+
+---
+
+**Esonero 2025**
+
+*Se il servizio fosse distribuito su più server per supportare un numero elevato di richieste concorrenti, quali caratteristiche di gRPC lo renderebbero adatto a questo tipo di scenario?*
+
+**Multiplexing HTTP/2**. Permette a più RPC di essere in corso contemporaneamente sulla stessa connessione TCP, evitando di dover creare una connessione indipendente per ogni chiamata.
+
+**Protocol Buffers**. Utilizza una serializzazione binaria generalmente compatta ed efficiente, riducendo l'overhead di trasmissione ed elaborazione.
+
+**Concorrenza**. Il framework supporta la gestione di più chiamate contemporanee. Lo sviluppatore deve comunque sincronizzare l'accesso alle eventuali risorse condivise.
+
+**Load balancing**. gRPC può essere integrato con meccanismi di distribuzione del carico, che permettono di indirizzare le chiamate verso differenti istanze del servizio.
+
+**Service discovery**. Attraverso resolver e sistemi esterni, il client può individuare gli endpoint delle istanze disponibili.
+
+**Deadline e cancellazione**. Permettono di controllare le chiamate troppo lente o non più necessarie, evitando che consumino risorse indefinitamente.
+
+**Request hedging** per migliorare la latenza percepita dal client, inviando richieste duplicate verso più istanze del servizio.
+
+gRPC è adatto a gestire un numero elevato di richieste concorrenti grazie all'utilizzo di HTTP/2, che supporta il multiplexing di più RPC sulla stessa connessione TCP, e di Protocol Buffers, che offre una serializzazione binaria compatta ed efficiente.
+
+Inoltre, gRPC supporta l'esecuzione concorrente delle chiamate e può essere integrato con meccanismi di service discovery e load balancing, permettendo di distribuire le richieste tra più istanze del servizio.
+
+Le funzionalità di deadline e cancellazione consentono infine di controllare la durata delle chiamate e l'utilizzo delle risorse.
+
+--- 
+
+**Esonero 2023**
+
+*Interpreta il seguente file `.proto` e spiega quali caratteristiche del middleware gRPC emergono dall'interfaccia*
+
+```protobuf
+syntax = "proto3";
+
+service OrderManagement {
+    rpc addOrder(Order)
+        returns (google.protobuf.StringValue);
+
+    rpc getOrder(google.protobuf.StringValue)
+        returns (Order);
+
+    rpc searchOrders(google.protobuf.StringValue)
+        returns (stream Order);
+
+    rpc updateOrders(stream Order)
+        returns (google.protobuf.StringValue);
+
+    rpc processOrders(
+        stream google.protobuf.StringValue
+    ) returns (stream CombinedShipment);
+}
+```
+
+<img src="imgs/5_11.png" alt="RPC" width="400"/>
+
+Strategia per rispondere, devi identificare:
+1. il servizio definito e le operazioni disponibili
+2. i messaggi di richiesta e risposta, con relativi campi e tipi
+3. la tipologia di ciascuna RPC in base alla presenza o meno di `stream` in input e output
+4. le caratteristiche generali di gRPC evidenziate dall'interfaccia come IDL, Protobuf, interoperabilità, streaming, serializzazione binaria self-describing...
+
+---
+
+## RECAPPONE
+
+<img src="imgs/5_12.png" alt="RPC" width="500"/>
