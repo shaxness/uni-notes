@@ -255,7 +255,7 @@ La latenza non è mai zero. Questo è accettabile per alcune applicazioni, ma pr
 
 Da qui nascono i concetti di **Edge Computing** (elaborazione vicino ai dispositivi) e **Computing Continuum** (collaborazione tra cloud ed edge).
 
-### Edge Computing e Fog Computing
+### Edge Computing
 Si porta la capacità di calcolo e storage alla periferia della rete, vicino a sensori, utenti e dispositivi.  
 Un **edge node** può essere un gateway, un piccolo server, uno smartphone o più in generale un qualsiasi dispositivo con capacità di elaborazione. In genere gli edge node sono posti a singolo hop dal dispositivo dell'utente finale.
 

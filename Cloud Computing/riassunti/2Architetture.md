@@ -2,8 +2,6 @@ Due modi di descrivere un sistema distribuito:
 - **Architettura Software** == descrive l'organizzazione logica dei componenti software e delle loro interazioni
 - **Architettura di Sistema** == descrive come l'architettura software è concretamente realizzata, includendo il **deployment** (collocamento e avvio dei componenti sull'infrastruttura)
 
-Prima di proseguire, ricordiamo che tradizionalmente un'applicazione 
-
 # Architettura Software
 Uno **stile architetturale** è l'insieme di scelte progettuali che definisce come organizzare le componenti software e le loro interazioni.
 
@@ -525,7 +523,7 @@ in particolare si replicano le coppie $(K,V)$: con $R$ copie totali, una è post
 
 <img src="imgs/2_15.png" width="300">
 
-Questa successione dei guasti implica che un peer debba conoscere più di un successore, in modo *da sapere a chi rivolgersi se il successore immediato non risponde* --> viene mantenuta una **successor list**.
+Questa gestione dei guasti implica che un peer debba conoscere più di un successore, in modo *da sapere a chi rivolgersi se il successore immediato non risponde* --> viene mantenuta una **successor list**.
 
 Durante l'assenza di un peer guasto i dati possono cambiare --> se un nodo torna servono due modifiche:
 1. il peer deve controllare con i successori eventuali aggiornamenti ai dati di cui torna ad essere responsabile
@@ -574,7 +572,7 @@ cioè si applica lo XOR bit a bit tra due identificatori e si interpreta il risu
 I motivi dell'utilizzo dello XOR sono principalmente che **è veloce da calcolare** (operazione supportata dall'hardware) ed è **simmetrica** a differenza della distanza circolare di Chord: $d(x, y) = d(y, x)$.
 
 Per Kademlia, l'overlay logico è organizzato come un **albero binario** costruito come segue: consideriamo gli identificatori a soli tre bit
-$$ 000, 001, 010, 011, 100, 101, 110, 111$$
+$$000, 001, 010, 011, 100, 101, 110, 111$$
 Possiamo organizzarli leggendo i bit dal più significativo al meno significativo. Nel primo lvl dell'albero si considera solo il primo bit, dividendo così lo spazio degli identificatori in due gruppi:
 - 0xx: 000, 001, 010, 011
 - 1xx: 100, 101, 110, 111
@@ -603,7 +601,7 @@ Per effettuare l'assegnazione di una risorsa, si individua per ogni chiave il pe
 Ogni peer mantiene una tabella di routing con $m$ **bucket**, dove $m$ è il numero di bit degli identificatori.  
 A sua volta, ogni bucket contiene fino a $k$ **contatti**: si parla di tabelle di routing a $k$-buckets per cui ogni riga può contenere fino a $k$ peer.
 
-Per ogni peer viene conservata la tupla $(IP, UDP port, ID)$, dove $ID$ è proprio il GUID del peer, necessario per calcolare la distanza logica XOR.
+Per ogni peer viene conservata la tupla $(IP, port, ID)$, dove $ID$ è proprio il GUID del peer, necessario per calcolare la distanza logica XOR.
 
 Fissiamo un nodo $i$ e la riga $j$ della sua tabella di routing. Allora i peer nel bucket $j$ sono quelli che **condividono con $i$ un numero di bit iniziali pari proprio a $j$**, ma differiscono nel bit successivo (chiaramente non compaiono necessariamente tutti, ma al massimo $k$ di essi...)
 
@@ -639,7 +637,7 @@ La tabella del peer 111 contiene:
 
 <img src="imgs/2_19.png" width="300">
 
-Ma 111 non possiede la risorsa 010 --> interroga 000 in quanto peer più vicino alla chiave tra quelli che conosce (ha distanza $011 \oplus 111 = 100 = 3$ invece che $011 \oplus 110 = 101 = 5$) --> 000 non possiede anch'esso 011, ma supponiamo che la sua tabella sia tale che conosce 010 --> 000 risponde a 111 con il contatto 010, che effettivamente possiede 011. Restituisce quindi la tupla associata e il lookup termina.
+Ma 111 non possiede la risorsa 011 --> interroga 000 in quanto peer più vicino alla chiave tra quelli che conosce (ha distanza $011 \oplus 000 = 011 = 3$ invece che $011 \oplus 110 = 101 = 5$) --> 000 non possiede anch'esso 011, ma supponiamo che la sua tabella sia tale che conosce 010 --> 000 risponde a 111 con il contatto 010, che effettivamente possiede 011. Restituisce quindi la tupla associata e il lookup termina.
 
 Si può dimostrare che il restringimento progressivo della ricerca segue salti exp. nella distanza XOR dall'elemento cercato --> $O(log N)$ messaggi.
 
