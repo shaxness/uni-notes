@@ -779,7 +779,7 @@ L'algoritmo di consenso prevede in generale che, quando viene proposta una nuova
 3. le varie tx validate vengano raccolte in un blocco, cha a sua volta sarà effettivamente aggiunto alla catena solo dopo che il blocco è stato validato secondo le regole di consenso
 
 Le tx sono quindi raggruppate in blocchi, e ogni blocco è diviso in:
-- **header**: contiene le info di controllo e collegamento, tra cui principalmente **l'hash del blocco precedente**, il **timestamp**, l'**hash del body del blocco corrente** e il **nonce** legato al meccanismo di consenso (es. POW)
+- **header**: contiene le info di controllo e collegamento, tra cui principalmente **l'hash dell'header del blocco precedente**, il **timestamp**, l'**hash del body del blocco corrente** e il **nonce** legato al meccanismo di consenso (es. POW)
 - **body**: contiene le tx validate che il blocco registra, tipicamente organizzate in un Merkle Tree per consentire verifica dell'integrità dei dati
 
 Quindi la blockchain si sviluppa in quanto ogni blocco contiene un riferimento basato sull'hash dell'header del blocco precedente --> se un byzantine tenta di modificare una tx di un blocco già registrato, cambia l'hash dell'header di quel blocco e quindi anche il riferimento nel blocco successivo e così a catena fino all'ultimo blocco --> il nuovo blocco sarà rifiutato, il bizantino dovrebbe modificare tutti i blocchi successivi alla tx per far accettare la sua versione della storia...
@@ -810,4 +810,4 @@ Quando il consenso si basa su un protocollo aperto a tutti i peer della rete -->
 
 Il mondo permissionless non è soggetto al risultato per cui al max un terzo dei nodi può essere bizantino: la sicurezza del sistema dipende dal potere computazionale / stake in mano ai nodi onesti.
 
-La blockchain permitionless, a differenza della permissioned (che è ibrida), è totalmente decentralizzata. Es. **Bitcoin** e **Ethereum**.
+La blockchain permissionless, a differenza della permissioned (che è ibrida), è totalmente decentralizzata. Es. **Bitcoin** e **Ethereum**.
