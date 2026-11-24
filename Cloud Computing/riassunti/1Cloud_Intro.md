@@ -157,8 +157,7 @@ Per scegliere una replica moltissime politiche possibili:
 - **Least Loaded**
 - **Weighted Round Robin** dove alcune repliche hanno peso maggiore (es. più risorse disponibili) e quindi ricevono più richieste
 - **Power of Two Choices** (scegli due repliche u.a.r. e inoltra alla meno carica)
-- Hashing
-- Session Stickiness per mantenere la sessione di un utente sempre sulla stessa replica. Fa parte delle politiche dette **client-aware**, che dovendo mantenere orientati i client verso le stesse repliche posssono rendere meno uniforme la distribuzione del carico
+- Hashing e più in generale politiche di Session Stickiness, dove si cerca di mantenere la sessione di un utente sempre sulla stessa replica. Fa parte delle politiche dette **client-aware**, che dovendo mantenere orientati i client verso le stesse repliche posssono rendere meno uniforme la distribuzione del carico
 
 Random, RR, WRR e Hashing non richiedono di conoscere lo stato attuale del server, si parla quindi di politiche **stateless**.
 
