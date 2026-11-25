@@ -51,7 +51,7 @@ In una **decentralizzata** invece la raccolta e l'elaborazione sono distribuite 
 La scelta effettiva del **come monitorare** è distinta dalla metodologia scelta per l'elaborazione:
     - **Passiva** se si osservano dati o attività già disponibili, senza iniettare richieste e quindi traffico nel sistema (es. log)
     - **Attiva** se si inviano richieste di misurazione (es. ping, heartbeat) per ottenere info più dettagliato. Chiaramente carico aggiuntivo rispetto all'approccio passivo...
-**Where to monitor?** Sarebbe a dire, dove conservare i dati e come prepararli? Es. i database a serie temporali sono adatti a misure associate al tempo come uso della CPU, che viene rilevato ogni pochi secondi... sul come prepararli invece i dati possono essere *aggregati, filtrati, correlati o normalizzati*
+- **Where to monitor?** Sarebbe a dire, dove conservare i dati e come prepararli? Es. i database a serie temporali sono adatti a misure associate al tempo come uso della CPU, che viene rilevato ogni pochi secondi... sul come prepararli invece i dati possono essere *aggregati, filtrati, correlati o normalizzati*
 
 ### Analyze
 L'analisi usa i dati monitorati per stabilire se serve un adattamento.  
