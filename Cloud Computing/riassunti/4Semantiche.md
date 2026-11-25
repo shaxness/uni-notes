@@ -81,7 +81,7 @@ Chiaro che il timeout non implica che il server sia guasto (magari richiesta lun
 2. **DF - Duplicate Filtering**: il server riconosce che una richiesta è ritrasmissione di una precedente --> **non la esegue nuovamente**
 3. **RR2 - Result Retransmit**: il server conserva il risultato della richiesta. Se arriva un duplicato della richiesta --> **ritrasmette il risultato salvato senza rielaborarla**
 
-*RR2 risolve quindi un problema per cui solo DF non basta: ignorare tutti i duplicati evita sì multipla esecuzione, ma se al client non è arrivata la prima risposta e non gliela rimandiamo resta senza niente (porello)*
+*RR2 risolve quindi un problema per cui solo DF non basta: ignorare tutti i duplicati evita sì multipla esecuzione, ma se al client non è arrivata la prima risposta e non gliela rimandiamo resta senza niente*
 
 ## May-Be
 Con la semantica **May-Be** non serve alcuno degli strumenti descritti sopra: il client invia e non ha alcuna garanzia di ricevere mai la risposta... né tantomeno di sapere se la richiesta è stata processata o meno.  
