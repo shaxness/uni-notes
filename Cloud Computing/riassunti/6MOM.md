@@ -273,7 +273,7 @@ La regola fondamentale dei consumer group è la seguente: **all'interno di uno s
 
 Nell'esempio in figura si hanno **meno consumer che partizioni** --> *dato che ogni partizione è assegnata a un solo consumer, alcuni consumer leggeranno da più partizioni*.
 
-Se avessimo invece avuto **più consumer che partizioni** --> *al massimo tre 3 consumer potranno ricevere una partizione in quel gruppo, gli altri rimarranno inattivi rispetto a quel topic.*
+Se avessimo invece avuto **più consumer che partizioni** (es. $3$ partizioni, $\gt 3$ consumer) --> *al massimo tre 3 consumer potranno ricevere una partizione in quel gruppo, gli altri rimarranno inattivi rispetto a quel topic.*
 
 Quindi **il numero di partizioni all'interno di un consumer group determina il parallelismo massimo di consumo**.
 

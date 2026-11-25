@@ -60,7 +60,7 @@ Un concetto da non confondere con il marshalling è quello di **serializzazione*
 
 Per la conversione dei dati, esistono quattro strategie principali:
 1. **Codifica indicata nel messaggio** == il mittente specifica il formato utilizzato e il destinatario effettua la conversione --> il limite di questo approccio è l'**overhead** nella dimensione del messaggio. 
-2. **Conversione nel formato destinatario** == il mittente converte direttamente i dati nel formato del ricevente --> il limite è che il ricevente **deve conoscere tutti i formati degli altri sistemi**
+2. **Conversione nel formato destinatario** == il mittente converte direttamente i dati nel formato del ricevente --> il limite è che il mittente **deve conoscere tutti i formati degli altri sistemi**
 3. **Broker** == un componente intermediario si occupa delle conversioni --> il limite è che il broker diventa quindi SPOF e collo di bottiglia
 4. **Formato comune** == sia mittente che destinatario convertono i dati da e verso una codifica condivisa 
 
@@ -88,7 +88,7 @@ Se la struttura contiene altri puntatori --> si procede ricorsivamente, copiando
 Ci si ricollega al riassunto 4.  
 Qui ci limitiamo a ricordare come **at-least-once** sia la semantica più adatta nel caso si debbano eseguire operazioni **idempotenti** (è sufficiente meccanismo RR1), mentre **at-most-once** è più complessa (RR1, RR2, DF) ma garantisce che se il server ha ricevuto la richiesta, allora la eseguirà al più una volta.
 
-Ricordiamo che un'operazione non idempotente può essere protetta da duplicazioni introducendo identificativi univoci delle richieste e un meccanismo applicativo di deduplicazione, trasformando il receiver in un Idempotent Receiver; oppure trasformando dove possibile l'operazione in un'operazione idempotente (es. *incrementa di 47 di 1* --> *imposta 48*).
+Ricordiamo che un'operazione non idempotente può essere protetta da duplicazioni introducendo identificativi univoci delle richieste e un meccanismo applicativo di deduplicazione, trasformando così il receiver in un Idempotent Receiver; oppure trasformando dove possibile l'operazione in un'operazione idempotente (es. *incrementa di 47 di 1* --> *imposta 48*).
 
 Per RPC non analizzeremo la semantica **exactly-once**, che sappiamo richiedere meccanismi avanzati di persistenza e recovery (la vedremo nelle MOM con Kafka), ricordiamo comunque che exactly-once serve per operazioni critiche dove si vuole garantire che la richiesta venga completata anche in caso di crash del server mid-processing.
 
@@ -99,7 +99,7 @@ Il processo attraverso il cui il client identifica l'indirizzo remoto è detto *
 Si distingue tra:
 - **Binding Statico** se l'endpoint viene stabilito prima dell'esecuzione, ad es. nel codice o nella configurazione del client.  
 Questo approccio è **semplice dato che non richiede meccanismo dinamico di discovery**, ma anche **poco flessibile** (se l'indirizzo cambia, il client deve aggiornare le informazioni utilizzate) e quindi **poco trasparente**
-- **Binding Dinamico** se invece il client individua l'endpoint durante l'esecuzione. Questo approccio permette quindi di **modificare la posizione** e **scegliere tra più repliche senza dover modificare il codice applicativo**, introducendo però ***overhead aggiuntivo per l'individuazione del server**.
+- **Binding Dinamico** se invece il client individua l'endpoint durante l'esecuzione. Questo approccio permette quindi di **modificare la posizione** e **scegliere tra più repliche senza dover modificare il codice applicativo**, introducendo però **overhead aggiuntivo per l'individuazione del server**.
 
 Il Binding Dinamico distingue due concetti:
 1. **Naming** == stabilisce quale servizio vuole sfruttare il client
@@ -242,7 +242,7 @@ La chiamata RPC è quindi, per quel che riguarda Sun RPC, **sincrona e bloccante
 
 Sun RPC affronta il problema dell'**eterogeneità** dei dati usando **XDR External Data Representation**, un formato **binario** comune e indipendente dalle rappresentazioni interne delle singole macchine.  
 
-XDR usa un sistema di **typing implicito**: il messaggio non deve necessariamente contenere informazioni esplicite sui tipi dei dati, in quanto sia server che client già conoscono la struttura dei dati grazie al file IDL (ad ogni tipo era assegnato un identificatore numerico, serviva proprio a questo) --> XDR è un formato **non self-describing**.
+XDR usa un sistema di **typing implicito**: il messaggio non deve necessariamente contenere informazioni esplicite sui tipi dei dati, in quanto sia server che client già conoscono la struttura dei dati grazie al file IDL --> XDR è un formato **non self-describing**.
 
 **Binding e Port Mapper**
 
@@ -335,7 +335,8 @@ A questo punto il client deve effettuare un lookup per ottenere il riferimento r
 ```java
 EchoInterface serverRMI = (EchoInterface) Naming.lookup("rmi://hostname:1099/EchoService");
 ```
-successivamente a ciò, potrà tranquillamente invocare i metodi remoti del servizio: `serverRMI.getEcho("ciao")`.
+successivamente a ciò, potrà tranquillamente invocare i metodi remoti del servizio: `serverRMI.getEcho("ciao")`.  
+Anche qui, come in Sun RPC, è necessario che il client conosca l'hostname del server e la porta del registry...
 
 Il **registry** interviene quindi per individuare l'oggetto remoto, ma non viene consultato ad ogni invocazione: da lì in poi il client può invocare i metodi dell'oggetto remoto tramite lo stub ottenuto.
 
@@ -348,7 +349,7 @@ Quindi anche qui non c'è trasparenza totale alla locazione, in quanto il client
 Per quel che riguarda la semantica, Java RMI offre anche **at-most-once** --> una singola invocazione remota può quindi essere eseguita zero oppure una volta.
 
 Trasparenze:
-- **Access Transparency** == **elevata** ma non totale: metodi simili a quelli locali, ma restano le eccezioni remote (`RemoteException`)
+- **Access Transparency** == **elevata** ma non totale: metodi simili a quelli locali, ma restano le eccezioni remote (`RemoteException`) e il fatto che si debba estendere la specifica interfacca `java.rmi.Remote`
 - **Location Transparency** == **parziale**: il client deve conoscere l'hostname del server e la porta del registry
 - **Replication Transparency** == non supportata nativamente
 - **Sincronia** == sincrona e bloccante nel modello base
@@ -958,8 +959,8 @@ Per capirle immaginiamo un servizio di mappe, dove a volte ho bisogno di chieder
 #### Unary (Simple) RPC
 Il client invia una singola richiesta e riceve una singola risposta:
 ```protobuf
-rpc ListFeatures(Rectangle)
-    returns (stream Feature);
+rpc GetFeature(Point)
+    returns (Feature);
 ```
 Si tratta del modello più simile ad una normale chiamata a procedura remota
 #### Server Streaming RPC
