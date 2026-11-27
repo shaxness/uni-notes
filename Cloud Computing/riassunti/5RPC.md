@@ -753,7 +753,7 @@ message Person {
 - un *nome* (es. `name`, `id`, `email`)
 - un *identificativo numerico locale al messaggio*
 
-I numeri identificano i campi nella codifica Protobuf, non rappresentano l'ordine in cui devono essere trasmessi --> il destinatario interpreterà i dati sempre in base a Protobuf --> a differenza di `gob` (dove le info sulle definizioni dei tipi erano trasportate nel flusso) e similmente a XDR, Protobuf è **self-describing**.
+I numeri identificano i campi nella codifica Protobuf, non rappresentano l'ordine in cui devono essere trasmessi --> il destinatario interpreterà i dati sempre in base a Protobuf --> a differenza di `gob` (dove le info sulle definizioni dei tipi erano trasportate nel flusso) e similmente a XDR, Protobuf **non è self-describing**.
 
 Per la definizione di un servizio:
 ```protobuf
