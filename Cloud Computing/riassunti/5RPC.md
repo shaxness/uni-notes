@@ -983,7 +983,7 @@ Sia il client che il server si inviano uno stream di messaggi, potenzialmente co
 rpc RouteChat(stream RouteNote)
     returns (stream RouteNote);
 ```
-Si tratta di una comunicazione **full-duplex**, per cui il server può inviare risposte senza dover necessariamente attendere che il client abbia terminato l'invio di tutti i messaggi e viceversa.
+Si tratta di una comunicazione **full-duplex**, per cui il server può inviare risposte senza dover necessariamente attendere che il client abbia terminato l'invio di tutti i messaggi e viceversa --> q**ui è evidente l'importanza del supporto di HTTP/2**!
 
 **gRPC preserva l'ordine dei messaggi all'interno di ciascuna direzione dello stream**.
 
