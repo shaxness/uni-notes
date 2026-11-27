@@ -731,7 +731,7 @@ In questo senso i super-peer svolgono il ruolo di **directory locale**, dal mome
 
 Supponiamo che un nodo stia cercando il file, allora la ricerca avviene semplicemente come segue: contatta anzitutto il proprio super-peer, che controlla se il file è disponibile presso uno dei peer del gruppo. Se restituisce il riferimento del peer che lo possiede, altrimenti ne estende la ricerca contattando altri super-peer. 
 
-In questo senso i protocolli adattabili sono anche **flooding** o **random-walk**, in quanto *stavolta l'overlay dei super-peer ha dimensione ridotta!
+In questo senso i protocolli adattabili sono anche **flooding** o **random-walk**, in quanto *stavolta l'overlay dei super-peer ha dimensione ridotta*!
 
 Due problemi caratteristici di queste reti:
 1. **Come associare i peer ai super-peer**: o **associazione statica** (i peer scelgono un super-peer e lo mantengono) o **associazione dinamica** (un peer può nel tempo passare a un super-peer più vicino o meno carico)
@@ -770,7 +770,7 @@ L'obiettivo è mantenere una storia condivisa e resistente alle alterazioni anch
 
 La presenza di nodi bizantini (prima introduzione con Byzantine Generals Problem, Lamport) introduce il tema di **consenso distribuito**, che approfondiremo successivamente.
 
-#### Funzionamento generale (semplificato) e struttura della catenaù
+#### Funzionamento generale (semplificato) e struttura della catena
 Si assume che ogni peer mantenga una replica locale del ledger, i.e. copia della storia delle transazioni. 
 
 L'algoritmo di consenso prevede in generale che, quando viene proposta una nuova tx:
